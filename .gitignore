@@ -1,0 +1,25 @@
+# Dependencies
+node_modules/
+
+# Environment variables (contains secrets!)
+.env
+
+# Build output
+dist/
+
+# Compiled JS files next to TS source
+src/**/*.js
+src/**/*.js.map
+src/**/*.d.ts
+src/**/*.d.ts.map
+
+# Uploaded files
+uploads/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
