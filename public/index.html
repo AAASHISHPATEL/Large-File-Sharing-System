@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise File Sharing</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 2rem; background: #f4f7f6; }
+        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
+        h1 { margin-top: 0; color: #333; }
+        .progress-bar-container { width: 100%; background-color: #e0e0e0; border-radius: 4px; margin-top: 20px; overflow: hidden; display: none; }
+        .progress-bar { height: 24px; background-color: #4caf50; width: 0%; transition: width 0.3s ease; text-align: center; color: white; line-height: 24px; font-size: 12px;}
+        #logs { margin-top: 20px; max-height: 200px; overflow-y: auto; background: #222; color: #0f0; padding: 10px; font-family: monospace; font-size: 12px; border-radius: 4px; display: none; }
+        .btn { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        .btn:hover { background: #0056b3; }
+        input[type="file"] { margin: 10px 0; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h1>File Upload Dashboard</h1>
+    
+    <div id="authSection">
+        <h3>1. Authentication</h3>
+        <button class="btn" onclick="registerAndLogin()">Auto Register & Login Test User</button>
+        <p id="authStatus">Not logged in.</p>
+    </div>
+
+    <div id="uploadSection" style="display: none; margin-top: 20px;">
+        <h3>2. Upload File</h3>
+        <input type="file" id="fileInput" />
+        <br/>
+        <button class="btn" onclick="startUpload()">Upload File</button>
+
+        <div class="progress-bar-container" id="progressContainer">
+            <div class="progress-bar" id="progressBar">0%</div>
+        </div>
+
+        <div id="logs"></div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
+    let jwtToken = '';
+    let socket;
+
+    function log(msg) {
+        const logsDiv = document.getElementById('logs');
+        logsDiv.style.display = 'block';
+        logsDiv.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        logsDiv.scrollTop = logsDiv.scrollHeight;
+    }
+
+    async function registerAndLogin() {
+        const username = `user_${Date.now()}`;
+        const password = 'password123';
+        
+        try {
+            await axios.post('/auth/register', { username, password });
+            const res = await axios.post('/auth/login', { username, password });
+            jwtToken = res.data.token;
+            document.getElementById('authStatus').innerText = `Logged in as ${username}`;
+            document.getElementById('uploadSection').style.display = 'block';
+            
+            // Connect WebSocket
+            socket = io({ transports: ['websocket', 'polling'] });
+        } catch (e) {
+            alert('Auth failed');
+        }
+    }
+
+    async function startUpload() {
+        const fileInput = document.getElementById('fileInput');
+        if (!fileInput.files.length) return alert('Select a file first.');
+        
+        const file = fileInput.files[0];
+        document.getElementById('progressContainer').style.display = 'block';
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('progressBar').innerText = '0%';
+        document.getElementById('logs').innerHTML = '';
+
+        try {
+            log(`Initializing upload for ${file.name}...`);
+            const initRes = await axios.post('/upload/init', 
+                { filename: file.name, totalSize: file.size },
+                { headers: { Authorization: `Bearer ${jwtToken}` } }
+            );
+            const uploadId = initRes.data.uploadId;
+            
+            // Join the specific room for real-time updates
+            socket.emit('joinUploadRoom', uploadId);
+
+            let chunksCompleted = 0;
+            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+
+            // Listen for progress from server
+            socket.on('progress', (data) => {
+                log(`Server Event: ${data.event} ` + (data.chunkIndex !== undefined ? `(Chunk ${data.chunkIndex})` : ''));
+                if (data.event === 'CHUNK_WRITTEN') {
+                    chunksCompleted++;
+                    const percent = Math.floor((chunksCompleted / totalChunks) * 100);
+                    document.getElementById('progressBar').style.width = `${percent}%`;
+                    document.getElementById('progressBar').innerText = `${percent}%`;
+                } else if (data.event === 'UPLOAD_COMPLETE') {
+                    log(`File successfully moved to MinIO: ${data.minioPath}`);
+                    document.getElementById('progressBar').style.backgroundColor = '#2196F3';
+                    document.getElementById('progressBar').innerText = 'Complete!';
+                }
+            });
+
+            log('Starting chunk uploads...');
+            const uploadPromises = [];
+            for (let i = 0; i < totalChunks; i++) {
+                const start = i * CHUNK_SIZE;
+                const end = Math.min(start + CHUNK_SIZE, file.size);
+                const chunk = file.slice(start, end);
+
+                const formData = new FormData();
+                formData.append('uploadId', uploadId);
+                formData.append('chunkIndex', i.toString());
+                formData.append('chunk', chunk, `chunk_${i}`);
+
+                const p = axios.post('/upload/chunk', formData, {
+                    headers: { Authorization: `Bearer ${jwtToken}` }
+                }).catch(err => {
+                    log(`Error uploading chunk ${i}: ${err.message}`);
+                    throw err; // Stop complete if a chunk fails
+                });
+                uploadPromises.push(p);
+            }
+
+            await Promise.all(uploadPromises);
+            
+            log('Signaling completion to server...');
+            await axios.post('/upload/complete', 
+                { uploadId, totalChunks },
+                { headers: { Authorization: `Bearer ${jwtToken}` } }
+            );
+
+        } catch (e) {
+            log(`Error: ${e.response?.data?.error || e.message}`);
+        }
+    }
+</script>
+</body>
+</html>
