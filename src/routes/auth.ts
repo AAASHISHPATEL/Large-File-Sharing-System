@@ -2,11 +2,15 @@ import { Router } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import pool from '../config/db';
+import { slidingWindowRateLimiter } from '../middleware/rateLimiter';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-for-dev';
 
-router.post('/register', async (req, res) => {
+// Allow 10 login/register attempts per IP per minute
+const authLimiter = slidingWindowRateLimiter(10, 60000, 'auth');
+
+router.post('/register', authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
         if (!username || !password) {
@@ -30,7 +34,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
     try {
         const { username, password } = req.body;
 

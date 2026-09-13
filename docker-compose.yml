@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   redis:
     image: redis:7-alpine
@@ -8,7 +7,7 @@ services:
       - redis_data:/data
 
   minio:
-    image: minio/minio:latest
+    image: quay.io/minio/minio:latest
     ports:
       - "9000:9000"
       - "9001:9001"
@@ -30,8 +29,20 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+
   app1:
     build: .
+    command: npm run start
     environment:
       - PORT=3000
       - REDIS_URL=redis://redis:6379
@@ -43,15 +54,18 @@ services:
       - MINIO_PORT=9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadminpassword
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
     depends_on:
       - redis
       - postgres
       - minio
+      - rabbitmq
     volumes:
       - shared_uploads:/app/uploads
 
   app2:
     build: .
+    command: npm run start
     environment:
       - PORT=3000
       - REDIS_URL=redis://redis:6379
@@ -63,10 +77,34 @@ services:
       - MINIO_PORT=9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadminpassword
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
     depends_on:
       - redis
       - postgres
       - minio
+      - rabbitmq
+    volumes:
+      - shared_uploads:/app/uploads
+
+  worker:
+    build: .
+    command: npm run start:worker
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=adminpassword
+      - POSTGRES_DB=filesharing
+      - POSTGRES_HOST=postgres
+      - MINIO_ENDPOINT=minio
+      - MINIO_PORT=9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadminpassword
+      - RABBITMQ_URL=amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      - redis
+      - postgres
+      - minio
+      - rabbitmq
     volumes:
       - shared_uploads:/app/uploads
 
@@ -84,4 +122,5 @@ volumes:
   redis_data:
   minio_data:
   postgres_data:
+  rabbitmq_data:
   shared_uploads:

@@ -1,150 +1,1147 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise File Sharing</title>
-    <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 2rem; background: #f4f7f6; }
-        .card { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); max-width: 600px; margin: auto; }
-        h1 { margin-top: 0; color: #333; }
-        .progress-bar-container { width: 100%; background-color: #e0e0e0; border-radius: 4px; margin-top: 20px; overflow: hidden; display: none; }
-        .progress-bar { height: 24px; background-color: #4caf50; width: 0%; transition: width 0.3s ease; text-align: center; color: white; line-height: 24px; font-size: 12px;}
-        #logs { margin-top: 20px; max-height: 200px; overflow-y: auto; background: #222; color: #0f0; padding: 10px; font-family: monospace; font-size: 12px; border-radius: 4px; display: none; }
-        .btn { background: #007bff; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
-        .btn:hover { background: #0056b3; }
-        input[type="file"] { margin: 10px 0; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FileVault — Secure Large File Sharing</title>
+  <meta name="description" content="Upload, download and P2P share large files securely with real-time progress." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script defer src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <script defer src="/socket.io/socket.io.js"></script>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    :root{
+      --bg:#05070f;--surface:rgba(255,255,255,.04);--surface-h:rgba(255,255,255,.07);
+      --border:rgba(255,255,255,.08);--borderb:rgba(255,255,255,.16);
+      --accent:#6c63ff;--accent2:#a78bfa;--success:#22d3a5;--danger:#ff5c7a;
+      --warn:#fbbf24;--text:#ffffff;--muted:rgba(255,255,255,.7);
+      --glow:rgba(108,99,255,.35);--blur:blur(24px);
+    }
+    html{scroll-behavior:smooth}
+    body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow-x:hidden}
+    body::before{content:'';position:fixed;inset:0;background:radial-gradient(ellipse 80% 60% at 20% 10%,rgba(108,99,255,.18) 0%,transparent 60%),radial-gradient(ellipse 60% 50% at 80% 80%,rgba(167,139,250,.12) 0%,transparent 60%),radial-gradient(ellipse 40% 40% at 50% 50%,rgba(34,211,165,.06) 0%,transparent 60%);pointer-events:none;z-index:0}
+    .page{position:relative;z-index:1}
+
+    /* ── Buttons ── */
+    .btn{display:inline-flex;align-items:center;gap:.45rem;padding:.6rem 1.3rem;border-radius:10px;font-size:.875rem;font-weight:600;cursor:pointer;border:none;transition:all .2s;text-decoration:none;font-family:'Inter',sans-serif}
+    .btn-primary{background:linear-gradient(135deg,var(--accent),#8b5cf6);color:#fff;box-shadow:0 4px 20px rgba(108,99,255,.4)}
+    .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 28px rgba(108,99,255,.55)}
+    .btn-primary:active{transform:translateY(0)}
+    .btn-success{background:linear-gradient(135deg,var(--success),#06d6a0);color:#fff;box-shadow:0 4px 16px rgba(34,211,165,.35)}
+    .btn-success:hover{transform:translateY(-1px)}
+    .btn-danger-solid{background:linear-gradient(135deg,var(--danger),#e11d48);color:#fff}
+    .btn-ghost{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+    .btn-ghost:hover{background:var(--surface-h,var(--surface-hover));border-color:var(--borderb)}
+    .btn-danger{background:rgba(255,92,122,.12);color:var(--danger);border:1px solid rgba(255,92,122,.25)}
+    .btn-danger:hover{background:rgba(255,92,122,.22)}
+    .btn-sm{padding:.38rem .85rem;font-size:.78rem}
+    .btn:disabled{opacity:.4;cursor:not-allowed;transform:none!important}
+    .spinner{width:14px;height:14px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+    @keyframes spin{to{transform:rotate(360deg)}}
+
+    /* ── Card ── */
+    .card{background:var(--surface);border:1px solid var(--border);border-radius:20px;backdrop-filter:var(--blur);padding:1.75rem}
+
+    /* ── Auth Page ── */
+    #auth-page{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:2rem}
+    .auth-box{width:100%;max-width:420px}
+    .auth-header{text-align:center;margin-bottom:2rem}
+    .auth-logo{width:60px;height:60px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:18px;display:flex;align-items:center;justify-content:center;font-size:1.8rem;margin:0 auto 1.2rem;box-shadow:0 0 40px var(--glow)}
+    .auth-header h1{font-size:1.75rem;font-weight:800;letter-spacing:-.03em}
+    .auth-header p{color:var(--muted);margin-top:.4rem;font-size:.9rem}
+    .tab-bar{display:flex;background:rgba(255,255,255,.04);border-radius:12px;padding:4px;margin-bottom:1.5rem;border:1px solid var(--border)}
+    .tab-btn{flex:1;padding:.55rem;text-align:center;cursor:pointer;border-radius:9px;font-size:.875rem;font-weight:600;color:var(--muted);transition:all .2s;border:none;background:none;font-family:'Inter',sans-serif}
+    .tab-btn.active{background:linear-gradient(135deg,var(--accent),#8b5cf6);color:#fff;box-shadow:0 2px 12px rgba(108,99,255,.4)}
+    .form-group{margin-bottom:1.1rem}
+    .form-group label{display:block;font-size:.78rem;font-weight:600;color:var(--muted);margin-bottom:.45rem;text-transform:uppercase;letter-spacing:.05em}
+    .form-group input{width:100%;padding:.75rem 1rem;background:rgba(255,255,255,.05);border:1px solid var(--border);border-radius:10px;color:var(--text);font-size:.9rem;font-family:'Inter',sans-serif;transition:all .2s;outline:none}
+    .form-group input:focus{border-color:var(--accent);background:rgba(108,99,255,.08);box-shadow:0 0 0 3px rgba(108,99,255,.15)}
+    .form-group input::placeholder{color:var(--muted)}
+    .alert{padding:.75rem 1rem;border-radius:10px;font-size:.85rem;margin-bottom:1rem;display:none}
+    .alert.show{display:block}
+    .alert-success{background:rgba(34,211,165,.1);border:1px solid rgba(34,211,165,.3);color:var(--success)}
+    .alert-danger{background:rgba(255,92,122,.1);border:1px solid rgba(255,92,122,.3);color:var(--danger)}
+
+    /* ── Nav ── */
+    nav{display:flex;align-items:center;justify-content:space-between;padding:1rem 2rem;background:rgba(5,7,15,.75);backdrop-filter:blur(20px);border-bottom:1px solid var(--border);position:sticky;top:0;z-index:100}
+    .nav-brand{display:flex;align-items:center;gap:.6rem;font-size:1.15rem;font-weight:700;letter-spacing:-.02em}
+    .nav-logo{width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:.95rem;box-shadow:0 0 16px var(--glow)}
+    .nav-right{display:flex;align-items:center;gap:.75rem}
+    .nav-avatar{width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:.75rem}
+    .online-dot{width:8px;height:8px;background:var(--success);border-radius:50%;display:inline-block;margin-right:.35rem;animation:pulse 2s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+    /* ── Dashboard ── */
+    #dashboard-page{display:none;min-height:100vh}
+    .dash-tabs{display:flex;gap:.5rem;padding:1.25rem 2rem .25rem;border-bottom:1px solid var(--border);background:rgba(5,7,15,.5);backdrop-filter:blur(16px);position:sticky;top:57px;z-index:90}
+    .dash-tab{padding:.5rem 1.1rem;border-radius:10px;font-size:.85rem;font-weight:600;cursor:pointer;border:1px solid transparent;color:var(--muted);transition:all .2s;background:none;font-family:'Inter',sans-serif;display:flex;align-items:center;gap:.4rem}
+    .dash-tab:hover{background:var(--surface);color:var(--text)}
+    .dash-tab.active{background:var(--surface);border-color:var(--borderb);color:var(--text)}
+    .dash-tab .tab-dot{width:6px;height:6px;background:var(--accent);border-radius:50%;display:none}
+    .dash-tab.active .tab-dot{display:block}
+    .dash-content{max-width:1100px;margin:0 auto;padding:1.75rem 1.5rem}
+
+    /* ── Upload Tab ── */
+    .upload-layout{display:grid;grid-template-columns:1fr 320px;gap:1.5rem;align-items:start}
+    @media(max-width:768px){.upload-layout{grid-template-columns:1fr}.dash-tabs{padding:.75rem 1rem .25rem}.nav{padding:.75rem 1rem}}
+    .drop-zone{border:2px dashed var(--borderb);border-radius:14px;padding:2.5rem 2rem;text-align:center;cursor:pointer;transition:all .25s;position:relative;background:rgba(255,255,255,.02)}
+    .drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:rgba(108,99,255,.06);box-shadow:0 0 30px rgba(108,99,255,.1)}
+    .drop-zone input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .drop-icon{font-size:2.2rem;margin-bottom:.6rem;display:block}
+    .drop-title{font-size:.95rem;font-weight:600;margin-bottom:.25rem}
+    .drop-sub{font-size:.78rem;color:var(--muted)}
+    .sel-file{display:none;margin-top:1rem;padding:.8rem 1rem;background:rgba(108,99,255,.1);border:1px solid rgba(108,99,255,.25);border-radius:10px;font-size:.85rem;align-items:center;gap:.6rem}
+    .sel-file.show{display:flex}
+    .file-icon{font-size:1.2rem}
+    .file-info{flex:1;min-width:0}
+    .file-name{font-weight:600;word-break:break-all;font-size:.85rem}
+    .file-size{font-size:.72rem;color:var(--muted);margin-top:.1rem}
+    .progress-section{margin-top:1.2rem;display:none}
+    .progress-section.show{display:block}
+    .progress-hdr{display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted);margin-bottom:.45rem}
+    .progress-track{width:100%;height:7px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden}
+    .progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px;width:0%;transition:width .3s ease}
+    .progress-fill.complete{background:linear-gradient(90deg,var(--success),#06d6a0)}
+    .steps{display:flex;gap:.4rem;margin-top:.7rem;flex-wrap:wrap}
+    .step{padding:.22rem .55rem;border-radius:99px;font-size:.68rem;font-weight:600;background:rgba(255,255,255,.05);border:1px solid var(--border);color:var(--muted);transition:all .25s}
+    .step.active{background:rgba(108,99,255,.2);border-color:rgba(108,99,255,.5);color:var(--accent2)}
+    .step.done{background:rgba(34,211,165,.15);border-color:rgba(34,211,165,.4);color:var(--success)}
+    .log-console{margin-top:.85rem;background:rgba(0,0,0,.55);border:1px solid var(--border);border-radius:10px;padding:.75rem .9rem;font-family:'Courier New',monospace;font-size:.72rem;max-height:140px;overflow-y:auto;display:none}
+    .log-console.show{display:block}
+    .log-line{padding:.12rem 0}
+    .log-line .ts{color:rgba(108,99,255,.7);margin-right:.4rem}
+    .log-line.success .msg{color:var(--success)}
+    .log-line.error .msg{color:var(--danger)}
+    .log-line .msg{color:rgba(255,255,255,.7)}
+    .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-bottom:1.25rem}
+    .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:1rem;backdrop-filter:var(--blur)}
+    .stat-val{font-size:1.35rem;font-weight:800}
+    .stat-lbl{font-size:.68rem;color:var(--muted);margin-top:.15rem;text-transform:uppercase;letter-spacing:.05em}
+
+    /* ── My Files Tab ── */
+    .files-toolbar{display:flex;align-items:center;gap:.75rem;margin-bottom:1.25rem;flex-wrap:wrap}
+    .files-toolbar h2{font-size:1.1rem;font-weight:700;flex:1}
+    .files-grid{display:flex;flex-direction:column;gap:.65rem}
+    .file-card{display:flex;align-items:center;gap:1rem;padding:1rem 1.1rem;background:var(--surface);border:1px solid var(--border);border-radius:14px;transition:all .2s;backdrop-filter:var(--blur)}
+    .file-card:hover{background:var(--surface-h,rgba(255,255,255,.07));border-color:var(--borderb)}
+    .file-card-icon{width:42px;height:42px;border-radius:11px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;flex-shrink:0}
+    .file-card-info{flex:1;min-width:0}
+    .file-card-name{font-size:.88rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .file-card-meta{font-size:.72rem;color:var(--muted);margin-top:.2rem;display:flex;gap:.7rem;flex-wrap:wrap}
+    .file-card-actions{display:flex;gap:.5rem;flex-shrink:0;flex-wrap:wrap}
+    .badge{font-size:.68rem;font-weight:600;padding:.2rem .55rem;border-radius:99px}
+    .badge-ok{background:rgba(34,211,165,.15);color:var(--success)}
+    .badge-pending{background:rgba(251,191,36,.15);color:var(--warn)}
+    .badge-read{background:rgba(108,99,255,.15);color:var(--accent2)}
+    .share-modal{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:500;padding:1rem}
+    .share-modal.show{display:flex}
+    .share-modal-box{background:#0d0f1c;border:1px solid var(--borderb);border-radius:20px;padding:2rem;width:100%;max-width:400px}
+    .share-modal-box h3{font-size:1.1rem;font-weight:700;margin-bottom:1.25rem}
+    .empty-state{text-align:center;padding:3rem 1rem;color:var(--muted)}
+    .empty-icon{font-size:2.5rem;margin-bottom:.75rem;opacity:.35}
+
+    /* ── P2P Tab ── */
+    .p2p-layout{display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start}
+    @media(max-width:700px){.p2p-layout{grid-template-columns:1fr}}
+    .p2p-panel{display:flex;flex-direction:column;gap:1rem}
+    .p2p-status-box{background:rgba(0,0,0,.4);border:1px solid var(--border);border-radius:12px;padding:1rem;font-size:.82rem;min-height:80px}
+    .p2p-status-box .s-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:.4rem;font-weight:600}
+    .p2p-status-box .s-value{font-weight:600;color:var(--accent2)}
+    .p2p-progress{margin-top:1rem;display:none}
+    .p2p-progress.show{display:block}
+    .p2p-progress-hdr{display:flex;justify-content:space-between;font-size:.78rem;color:var(--muted);margin-bottom:.4rem}
+    .p2p-progress-track{width:100%;height:7px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden}
+    .p2p-progress-fill{height:100%;background:linear-gradient(90deg,var(--success),#06d6a0);border-radius:99px;width:0%;transition:width .2s}
+    .online-badge{display:inline-flex;align-items:center;gap:.35rem;font-size:.72rem;padding:.2rem .6rem;border-radius:99px;background:rgba(34,211,165,.12);border:1px solid rgba(34,211,165,.3);color:var(--success);font-weight:600}
+    .offline-badge{display:inline-flex;align-items:center;gap:.35rem;font-size:.72rem;padding:.2rem .6rem;border-radius:99px;background:rgba(255,92,122,.12);border:1px solid rgba(255,92,122,.3);color:var(--danger);font-weight:600}
+    .p2p-drop{border:2px dashed var(--borderb);border-radius:12px;padding:1.5rem;text-align:center;cursor:pointer;position:relative;background:rgba(255,255,255,.02);transition:all .2s}
+    .p2p-drop:hover,.p2p-drop.dragover{border-color:var(--success);background:rgba(34,211,165,.05)}
+    .p2p-drop input[type="file"]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+    .p2p-sel-file{display:none;margin-top:.75rem;padding:.7rem .9rem;background:rgba(34,211,165,.08);border:1px solid rgba(34,211,165,.2);border-radius:9px;font-size:.82rem;align-items:center;gap:.5rem}
+    .p2p-sel-file.show{display:flex}
+
+    /* ── P2P Incoming Modal ── */
+    .p2p-modal{position:fixed;inset:0;background:rgba(0,0,0,.7);backdrop-filter:blur(12px);display:none;align-items:center;justify-content:center;z-index:600;padding:1rem}
+    .p2p-modal.show{display:flex}
+    .p2p-modal-box{background:#0d0f1c;border:1px solid var(--borderb);border-radius:22px;padding:2.25rem;width:100%;max-width:420px;text-align:center}
+    .p2p-modal-icon{font-size:3rem;margin-bottom:1rem}
+    .p2p-modal-box h3{font-size:1.15rem;font-weight:700;margin-bottom:.5rem}
+    .p2p-modal-box p{color:var(--muted);font-size:.88rem;margin-bottom:.35rem}
+    .p2p-modal-actions{display:flex;gap:.75rem;margin-top:1.5rem;justify-content:center}
+
+    /* ── Toast ── */
+    #toast-container{position:fixed;bottom:1.5rem;right:1.5rem;display:flex;flex-direction:column;gap:.5rem;z-index:1000}
+    .toast{padding:.8rem 1.1rem;border-radius:12px;font-size:.84rem;font-weight:500;backdrop-filter:blur(20px);border:1px solid var(--border);animation:slideIn .3s ease;max-width:320px;display:flex;align-items:center;gap:.5rem}
+    .toast-success{background:rgba(34,211,165,.15);border-color:rgba(34,211,165,.3);color:var(--success)}
+    .toast-error{background:rgba(255,92,122,.15);border-color:rgba(255,92,122,.3);color:var(--danger)}
+    .toast-info{background:rgba(108,99,255,.15);border-color:rgba(108,99,255,.3);color:var(--accent2)}
+    .toast-warn{background:rgba(251,191,36,.15);border-color:rgba(251,191,36,.3);color:var(--warn)}
+    @keyframes slideIn{from{transform:translateX(120%);opacity:0}to{transform:translateX(0);opacity:1}}
+    @keyframes slideOut{from{opacity:1}to{transform:translateX(120%);opacity:0}}
+    ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--borderb);border-radius:99px}
+    .section-hdr{font-size:.95rem;font-weight:700;margin-bottom:1.1rem;display:flex;align-items:center;gap:.45rem}
+    .section-icon{width:26px;height:26px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:.8rem}
+  </style>
 </head>
 <body>
+<div class="page">
 
-<div class="card">
-    <h1>File Upload Dashboard</h1>
-    
-    <div id="authSection">
-        <h3>1. Authentication</h3>
-        <button class="btn" onclick="registerAndLogin()">Auto Register & Login Test User</button>
-        <p id="authStatus">Not logged in.</p>
+<!-- ═══════════════ AUTH PAGE ═══════════════ -->
+<div id="auth-page">
+  <div class="auth-box">
+    <div class="auth-header">
+      <div class="auth-logo">🔐</div>
+      <h1>FileVault</h1>
+      <p>Upload · Download · P2P Share — Securely</p>
     </div>
-
-    <div id="uploadSection" style="display: none; margin-top: 20px;">
-        <h3>2. Upload File</h3>
-        <input type="file" id="fileInput" />
-        <br/>
-        <button class="btn" onclick="startUpload()">Upload File</button>
-
-        <div class="progress-bar-container" id="progressContainer">
-            <div class="progress-bar" id="progressBar">0%</div>
-        </div>
-
-        <div id="logs"></div>
+    <div class="card">
+      <div class="tab-bar">
+        <button class="tab-btn active" id="tab-login" onclick="switchTab('login')">Sign In</button>
+        <button class="tab-btn" id="tab-register" onclick="switchTab('register')">Create Account</button>
+      </div>
+      <div id="form-login">
+        <div id="login-alert" class="alert"></div>
+        <div class="form-group"><label for="login-username">Username</label>
+          <input type="text" id="login-username" placeholder="Your username" autocomplete="username" /></div>
+        <div class="form-group"><label for="login-password">Password</label>
+          <input type="password" id="login-password" placeholder="Your password" autocomplete="current-password" /></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:.4rem" id="login-btn" onclick="handleLogin()">Sign In</button>
+      </div>
+      <div id="form-register" style="display:none">
+        <div id="register-alert" class="alert"></div>
+        <div class="form-group"><label for="reg-username">Username</label>
+          <input type="text" id="reg-username" placeholder="Choose a username" autocomplete="username" /></div>
+        <div class="form-group"><label for="reg-password">Password</label>
+          <input type="password" id="reg-password" placeholder="Min 6 characters" autocomplete="new-password" /></div>
+        <button class="btn btn-primary" style="width:100%;justify-content:center;margin-top:.4rem" id="register-btn" onclick="handleRegister()">Create Account</button>
+      </div>
     </div>
+  </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
-<script src="/socket.io/socket.io.js"></script>
+<!-- ═══════════════ DASHBOARD ═══════════════ -->
+<div id="dashboard-page">
+  <nav>
+    <div class="nav-brand"><div class="nav-logo">🔐</div> FileVault</div>
+    <div class="nav-right">
+      <span id="online-indicator"></span>
+      <div style="display:flex;align-items:center;gap:.5rem;font-size:.85rem">
+        <div class="nav-avatar" id="nav-avatar">?</div>
+        <span id="nav-username" style="font-weight:600"></span>
+      </div>
+      <button class="btn btn-danger btn-sm" onclick="handleLogout()">Sign Out</button>
+    </div>
+  </nav>
+
+  <!-- Tab Navigation -->
+  <div class="dash-tabs">
+    <button class="dash-tab active" id="dtab-upload" onclick="showDashTab('upload')"><div class="tab-dot"></div>📤 Upload</button>
+    <button class="dash-tab" id="dtab-files" onclick="showDashTab('files')"><div class="tab-dot"></div>📁 My Files</button>
+    <button class="dash-tab" id="dtab-p2p" onclick="showDashTab('p2p')"><div class="tab-dot"></div>⚡ P2P Transfer</button>
+  </div>
+
+  <!-- ─── TAB: Upload ─── -->
+  <div id="panel-upload" class="dash-content">
+    <div class="upload-layout">
+      <div>
+        <div class="card">
+          <div class="section-hdr"><div class="section-icon">📤</div> Upload to Cloud</div>
+          <div class="drop-zone" id="drop-zone">
+            <input type="file" id="file-input" aria-label="File upload" onchange="onFileSelected()" />
+            <span class="drop-icon">☁️</span>
+            <div class="drop-title">Drop your file here</div>
+            <div class="drop-sub">or click to browse · Any file type</div>
+          </div>
+          <div class="sel-file" id="sel-file">
+            <div class="file-icon" id="sf-icon">📄</div>
+            <div class="file-info">
+              <div class="file-name" id="sf-name"></div>
+              <div class="file-size" id="sf-size"></div>
+            </div>
+            <button class="btn btn-ghost btn-sm" aria-label="Clear file" onclick="clearFile()">✕</button>
+          </div>
+          <div class="progress-section" id="progress-section">
+            <div class="progress-hdr"><span id="progress-label">Uploading...</span><span id="progress-pct">0%</span></div>
+            <div class="progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+            <div class="steps">
+              <span class="step" id="step-init">⬡ Init</span>
+              <span class="step" id="step-chunks">⬡ Chunks</span>
+              <span class="step" id="step-stitch">⬡ Stitching</span>
+              <span class="step" id="step-minio">⬡ Storing</span>
+              <span class="step" id="step-done">⬡ Complete</span>
+            </div>
+          </div>
+          <div class="log-console" id="log-console"></div>
+          <div style="margin-top:1.1rem;display:flex;gap:.65rem">
+            <button class="btn btn-primary" id="upload-btn" onclick="startUpload()" disabled style="flex:1;justify-content:center">Upload File</button>
+            <button class="btn btn-ghost btn-sm" onclick="clearLog()" id="clear-log-btn" style="display:none">Clear</button>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="stats-grid">
+          <div class="stat-card"><div class="stat-val" id="stat-total">0</div><div class="stat-lbl">Uploads</div></div>
+          <div class="stat-card"><div class="stat-val" id="stat-size" style="color:var(--accent2)">0 MB</div><div class="stat-lbl">Data</div></div>
+        </div>
+        <div class="card">
+          <div class="section-hdr"><div class="section-icon">📋</div> Recent <button class="btn btn-ghost btn-sm" aria-label="Refresh recent files" onclick="loadFiles()" style="margin-left:auto;padding:.25rem .6rem">↻</button></div>
+          <div id="recent-list"><div class="empty-state"><div class="empty-icon">📭</div>No uploads yet</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── TAB: My Files ─── -->
+  <div id="panel-files" class="dash-content" style="display:none">
+    <div class="files-toolbar">
+      <h2>📁 My Files</h2>
+      <button class="btn btn-ghost btn-sm" onclick="loadFiles()">↻ Refresh</button>
+    </div>
+    <div class="files-grid" id="files-grid">
+      <div class="empty-state"><div class="empty-icon">📭</div><p>No files yet. Upload something!</p></div>
+    </div>
+  </div>
+
+  <!-- ─── TAB: P2P Transfer ─── -->
+  <div id="panel-p2p" class="dash-content" style="display:none">
+    <div class="p2p-layout">
+      <!-- SEND -->
+      <div class="p2p-panel">
+        <div class="card">
+          <div class="section-hdr"><div class="section-icon">🚀</div> Send File Directly</div>
+          <div class="p2p-drop" id="p2p-drop">
+            <input type="file" id="p2p-file-input" aria-label="P2P File upload" onchange="onP2PFileSelected()" />
+            <span class="drop-icon" style="font-size:1.8rem">📂</span>
+            <div class="drop-title" style="font-size:.88rem">Select file to send</div>
+            <div class="drop-sub">Choose any local file (P2P — no cloud involved)</div>
+          </div>
+          <div class="p2p-sel-file" id="p2p-sel-file">
+            <div class="file-icon" id="p2p-sf-icon">📄</div>
+            <div class="file-info">
+              <div class="file-name" id="p2p-sf-name"></div>
+              <div class="file-size" id="p2p-sf-size"></div>
+            </div>
+            <button class="btn btn-ghost btn-sm" aria-label="Clear P2P file" onclick="clearP2PFile()">✕</button>
+          </div>
+          <div class="form-group" style="margin-top:1rem;margin-bottom:.75rem">
+            <label for="p2p-username">Recipient Username</label>
+            <input type="text" id="p2p-username" placeholder="e.g. ashish" style="font-size:.88rem" />
+          </div>
+          <button class="btn btn-success" id="p2p-send-btn" onclick="p2pSendRequest()" disabled style="width:100%;justify-content:center">⚡ Request Transfer</button>
+        </div>
+
+        <div class="card">
+          <div class="section-hdr" style="margin-bottom:.75rem"><div class="section-icon" style="background:linear-gradient(135deg,var(--success),#06d6a0)">📊</div> Send Status</div>
+          <div class="p2p-status-box" id="p2p-send-status">
+            <div class="s-label">Status</div>
+            <div class="s-value">Idle — ready to send</div>
+          </div>
+          <div class="p2p-progress" id="p2p-send-progress">
+            <div class="p2p-progress-hdr"><span id="p2p-send-label">Sending...</span><span id="p2p-send-pct">0%</span></div>
+            <div class="p2p-progress-track"><div class="p2p-progress-fill" id="p2p-send-fill"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RECEIVE -->
+      <div class="p2p-panel">
+        <div class="card">
+          <div class="section-hdr"><div class="section-icon" style="background:linear-gradient(135deg,#22d3a5,#06d6a0)">📥</div> Receive Status</div>
+          <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:1rem">
+            <div id="online-status-badge" class="offline-badge">● Offline</div>
+            <div style="font-size:.8rem;color:var(--muted)">Your username: <strong id="my-username-display" style="color:var(--text)">—</strong></div>
+          </div>
+          <div class="p2p-status-box" id="p2p-recv-status">
+            <div class="s-label">Status</div>
+            <div class="s-value">Idle — waiting for incoming transfers</div>
+          </div>
+          <div class="p2p-progress" id="p2p-recv-progress">
+            <div class="p2p-progress-hdr"><span id="p2p-recv-label">Receiving...</span><span id="p2p-recv-pct">0%</span></div>
+            <div class="p2p-progress-track"><div class="p2p-progress-fill" id="p2p-recv-fill"></div></div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="section-hdr" style="margin-bottom:.6rem"><div class="section-icon">ℹ️</div> How P2P Works</div>
+          <div style="font-size:.8rem;color:var(--muted);line-height:1.7">
+            <p>1️⃣ Both users must be <strong style="color:var(--text)">online</strong> (logged in)</p>
+            <p>2️⃣ Sender selects a file and enters recipient username</p>
+            <p>3️⃣ Recipient sees an <strong style="color:var(--accent2)">Accept / Reject</strong> popup</p>
+            <p>4️⃣ On Accept: WebRTC establishes a <strong style="color:var(--success)">direct connection</strong></p>
+            <p>5️⃣ File transfers <strong style="color:var(--success)">peer-to-peer</strong> — no cloud storage used</p>
+            <p style="margin-top:.6rem;padding:.6rem .8rem;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:8px;color:var(--warn)">⚠️ Best on the same network (LAN/WiFi). Cross-network may need a TURN server.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Cloud Share Modal ─── -->
+<div class="share-modal" id="share-modal">
+  <div class="share-modal-box">
+    <h3>☁️ Share File</h3>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.25rem">Share "<span id="share-filename"></span>" with another user</p>
+    <div class="form-group">
+      <label for="share-username">Recipient Username</label>
+      <input type="text" id="share-username" placeholder="Enter username" />
+    </div>
+    <div id="share-alert" class="alert"></div>
+    <div style="display:flex;gap:.65rem;margin-top:.5rem">
+      <button class="btn btn-primary" id="share-submit-btn" onclick="submitShare()" style="flex:1;justify-content:center">Share</button>
+      <button class="btn btn-ghost" onclick="closeShareModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ─── P2P Incoming Request Modal ─── -->
+<div class="p2p-modal" id="p2p-modal">
+  <div class="p2p-modal-box">
+    <div class="p2p-modal-icon">📨</div>
+    <h3>Incoming Transfer Request</h3>
+    <p><strong id="p2p-from-user" style="color:var(--accent2)">Someone</strong> wants to send you:</p>
+    <p style="font-weight:600;font-size:.95rem;margin:.4rem 0" id="p2p-incoming-filename">file.zip</p>
+    <p style="color:var(--muted);font-size:.82rem" id="p2p-incoming-size">0 MB</p>
+    <div class="p2p-modal-actions">
+      <button class="btn btn-success" onclick="p2pAccept()" style="flex:1;justify-content:center">✅ Accept</button>
+      <button class="btn btn-danger" onclick="p2pReject()" style="flex:1;justify-content:center">❌ Reject</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast-container"></div>
+
 <script>
-    const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB
-    let jwtToken = '';
-    let socket;
+// ══════════════════════════════════════════════════════
+//   CONFIG & STATE
+// ══════════════════════════════════════════════════════
+const CHUNK_SIZE = 5 * 1024 * 1024; // 5MB for cloud upload
+const P2P_CHUNK = 65536; // 64KB for WebRTC DataChannel
 
-    function log(msg) {
-        const logsDiv = document.getElementById('logs');
-        logsDiv.style.display = 'block';
-        logsDiv.innerHTML += `<div>[${new Date().toLocaleTimeString()}] ${msg}</div>`;
-        logsDiv.scrollTop = logsDiv.scrollHeight;
+let jwtToken = '', currentUser = null, socket = null;
+let selectedFile = null, isUploading = false;
+let totalBytesUploaded = 0, uploadHistory = [];
+
+// P2P state
+let p2pFile = null, p2pPeerConn = null, p2pDataChan = null;
+let p2pState = 'idle'; // idle | requesting | accepting | transferring | done
+let p2pPeerSocketId = null;
+let p2pRecvBuffers = [], p2pRecvMeta = null, p2pRecvBytes = 0;
+let pendingP2P = null; // { fromSocketId, fromUsername, filename, fileSize }
+
+// Share modal state
+let shareFileId = null;
+
+// ══════════════════════════════════════════════════════
+//   INIT
+// ══════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', () => {
+  const t = localStorage.getItem('fv_token');
+  const u = localStorage.getItem('fv_user');
+  if (t && u) { jwtToken = t; currentUser = JSON.parse(u); showDashboard(); }
+
+  // Cloud upload drop zone
+  const dz = document.getElementById('drop-zone');
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dragover'));
+  dz.addEventListener('drop', e => {
+    e.preventDefault(); dz.classList.remove('dragover');
+    if (e.dataTransfer.files.length) { document.getElementById('file-input').files = e.dataTransfer.files; onFileSelected(); }
+  });
+
+  // P2P drop zone
+  const pd = document.getElementById('p2p-drop');
+  pd.addEventListener('dragover', e => { e.preventDefault(); pd.classList.add('dragover'); });
+  pd.addEventListener('dragleave', () => pd.classList.remove('dragover'));
+  pd.addEventListener('drop', e => {
+    e.preventDefault(); pd.classList.remove('dragover');
+    if (e.dataTransfer.files.length) { document.getElementById('p2p-file-input').files = e.dataTransfer.files; onP2PFileSelected(); }
+  });
+
+  document.getElementById('login-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleLogin(); });
+  document.getElementById('reg-password').addEventListener('keydown', e => { if (e.key === 'Enter') handleRegister(); });
+  document.getElementById('p2p-username').addEventListener('input', updateP2PSendBtn);
+});
+
+// ══════════════════════════════════════════════════════
+//   AUTH
+// ══════════════════════════════════════════════════════
+function switchTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('form-login').style.display = isLogin ? 'block' : 'none';
+  document.getElementById('form-register').style.display = isLogin ? 'none' : 'block';
+  document.getElementById('tab-login').classList.toggle('active', isLogin);
+  document.getElementById('tab-register').classList.toggle('active', !isLogin);
+  ['login-alert','register-alert'].forEach(id => { const el = document.getElementById(id); el.className = 'alert'; el.textContent = ''; });
+}
+
+async function handleLogin() {
+  const username = document.getElementById('login-username').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('login-btn');
+  if (!username || !password) { showAlert('login', 'Please fill in all fields', 'danger'); return; }
+  setLoading(btn, true, 'Signing in...');
+  try {
+    const res = await axios.post('/auth/login', { username, password });
+    jwtToken = res.data.token; currentUser = res.data.user;
+    localStorage.setItem('fv_token', jwtToken); localStorage.setItem('fv_user', JSON.stringify(currentUser));
+    toast('Welcome back, ' + currentUser.username + '!', 'success');
+    showDashboard();
+  } catch (err) {
+    showAlert('login', err.response?.data?.error || 'Login failed', 'danger');
+  } finally { setLoading(btn, false, 'Sign In'); }
+}
+
+async function handleRegister() {
+  const username = document.getElementById('reg-username').value.trim();
+  const password = document.getElementById('reg-password').value;
+  const btn = document.getElementById('register-btn');
+  if (!username) { showAlert('register', 'Username required', 'danger'); return; }
+  if (!password || password.length < 6) { showAlert('register', 'Password must be at least 6 characters', 'danger'); return; }
+  setLoading(btn, true, 'Creating...');
+  try {
+    await axios.post('/auth/register', { username, password });
+    const res = await axios.post('/auth/login', { username, password });
+    jwtToken = res.data.token; currentUser = res.data.user;
+    localStorage.setItem('fv_token', jwtToken); localStorage.setItem('fv_user', JSON.stringify(currentUser));
+    toast('Account created! Welcome, ' + currentUser.username + '!', 'success');
+    showDashboard();
+  } catch (err) {
+    showAlert('register', err.response?.data?.error || 'Registration failed', 'danger');
+  } finally { setLoading(btn, false, 'Create Account'); }
+}
+
+function handleLogout() {
+  jwtToken = ''; currentUser = null; selectedFile = null; uploadHistory = []; totalBytesUploaded = 0;
+  localStorage.removeItem('fv_token'); localStorage.removeItem('fv_user');
+  if (socket) { socket.disconnect(); socket = null; }
+  if (p2pPeerConn) { p2pPeerConn.close(); p2pPeerConn = null; }
+  document.getElementById('dashboard-page').style.display = 'none';
+  document.getElementById('auth-page').style.display = 'flex';
+  document.getElementById('login-username').value = ''; document.getElementById('login-password').value = '';
+  switchTab('login'); toast('Signed out.', 'info');
+}
+
+// ══════════════════════════════════════════════════════
+//   DASHBOARD
+// ══════════════════════════════════════════════════════
+function showDashboard() {
+  document.getElementById('auth-page').style.display = 'none';
+  document.getElementById('dashboard-page').style.display = 'block';
+  document.getElementById('nav-avatar').textContent = currentUser.username.substring(0, 2).toUpperCase();
+  document.getElementById('nav-username').textContent = currentUser.username;
+  document.getElementById('my-username-display').textContent = currentUser.username;
+
+  initSocket(); loadFiles();
+}
+
+function showDashTab(name) {
+  ['upload','files','p2p'].forEach(t => {
+    document.getElementById('panel-' + t).style.display = t === name ? 'block' : 'none';
+    document.getElementById('dtab-' + t).classList.toggle('active', t === name);
+  });
+  if (name === 'files') loadFiles();
+}
+
+// ══════════════════════════════════════════════════════
+//   SOCKET.IO
+// ══════════════════════════════════════════════════════
+function initSocket() {
+  if (socket) return;
+  socket = io({ transports: ['websocket', 'polling'] });
+
+  socket.on('connect', () => {
+    socket.emit('identify', { userId: currentUser.id, username: currentUser.username });
+    document.getElementById('online-status-badge').className = 'online-badge';
+    document.getElementById('online-status-badge').innerHTML = '● Online';
+    document.getElementById('online-indicator').innerHTML = '<span class="online-dot"></span>';
+    log('WebSocket connected', 'success');
+  });
+
+  socket.on('disconnect', () => {
+    document.getElementById('online-status-badge').className = 'offline-badge';
+    document.getElementById('online-status-badge').innerHTML = '● Offline';
+    document.getElementById('online-indicator').innerHTML = '';
+  });
+
+  // ── Cloud upload progress ──
+  socket.on('progress', data => {
+    if (data.event === 'CHUNK_WRITTEN') {
+      setStep('chunks', 'active');
+    } else if (data.event === 'STITCHING_STARTED') {
+      setStep('chunks', 'done'); setStep('stitch', 'active');
+      setProgress(90, 'Stitching chunks...');
+      log('Stitching chunks...');
+    } else if (data.event === 'UPLOADING_TO_MINIO') {
+      setStep('stitch', 'done'); setStep('minio', 'active');
+      setProgress(95, 'Storing to cloud...');
+      log('Uploading to MinIO...');
+    } else if (data.event === 'UPLOAD_COMPLETE') {
+      setStep('minio', 'done'); setStep('done', 'done');
+      setProgress(100, 'Complete!', true);
+      log('✓ Upload complete: ' + data.minioPath, 'success');
+      totalBytesUploaded += selectedFile?.size || 0;
+      toast(selectedFile?.name + ' uploaded!', 'success');
+      uploadHistory.unshift({ filename: selectedFile?.name || '', size: selectedFile?.size || 0, status: 'completed', ts: new Date() });
+      updateStats(); renderRecent();
+      setTimeout(() => { isUploading = false; clearFile(); document.getElementById('upload-btn').disabled = false; document.getElementById('upload-btn').innerHTML = 'Upload File'; }, 1500);
     }
+  });
 
-    async function registerAndLogin() {
-        const username = `user_${Date.now()}`;
-        const password = 'password123';
-        
-        try {
-            await axios.post('/auth/register', { username, password });
-            const res = await axios.post('/auth/login', { username, password });
-            jwtToken = res.data.token;
-            document.getElementById('authStatus').innerText = `Logged in as ${username}`;
-            document.getElementById('uploadSection').style.display = 'block';
-            
-            // Connect WebSocket
-            socket = io({ transports: ['websocket', 'polling'] });
-        } catch (e) {
-            alert('Auth failed');
+  // ── Cloud file shared notification ──
+  socket.on('file:shared', data => {
+    toast(`📁 ${data.fromUsername} shared "${data.filename}" with you!`, 'info');
+    loadFiles();
+  });
+
+  // ── P2P: Request sent acknowledgement ──
+  socket.on('p2p:request-sent', data => {
+    p2pState = 'requesting';
+    updateP2PSendStatus(`⏳ Waiting for ${data.toUsername} to accept...`);
+  });
+
+  // ── P2P: Incoming transfer request ──
+  socket.on('p2p:incoming-request', data => {
+    pendingP2P = data;
+    document.getElementById('p2p-from-user').textContent = data.fromUsername;
+    document.getElementById('p2p-incoming-filename').textContent = data.filename;
+    document.getElementById('p2p-incoming-size').textContent = formatBytes(data.fileSize);
+    document.getElementById('p2p-modal').classList.add('show');
+    toast(`📨 ${data.fromUsername} wants to send you ${data.filename}`, 'warn');
+  });
+
+  // ── P2P: Transfer accepted ──
+  socket.on('p2p:accepted', async data => {
+    p2pPeerSocketId = data.fromSocketId;
+    updateP2PSendStatus(`✅ ${data.fromUsername} accepted! Connecting...`);
+    toast(`${data.fromUsername} accepted the transfer!`, 'success');
+    await initP2PSender(data.fromSocketId);
+  });
+
+  // ── P2P: Transfer rejected ──
+  socket.on('p2p:rejected', data => {
+    p2pState = 'idle';
+    updateP2PSendStatus(`❌ ${data.fromUsername} rejected the transfer.`);
+    toast(`${data.fromUsername} rejected the transfer.`, 'error');
+  });
+
+  // ── P2P: Error ──
+  socket.on('p2p:error', data => {
+    p2pState = 'idle';
+    updateP2PSendStatus('❌ ' + data.message);
+    toast(data.message, 'error');
+  });
+
+  // ── WebRTC: Offer received (receiver side) ──
+  socket.on('p2p:offer', async data => {
+    await initP2PReceiver(data.fromSocketId, data.offer);
+  });
+
+  // ── WebRTC: Answer received (sender side) ──
+  socket.on('p2p:answer', async data => {
+    if (p2pPeerConn) {
+      try { await p2pPeerConn.setRemoteDescription(data.answer); } catch(e) { console.error('setRemoteDescription:', e); }
+    }
+  });
+
+  // ── WebRTC: ICE candidate ──
+  socket.on('p2p:ice-candidate', async data => {
+    if (p2pPeerConn && data.candidate) {
+      try { await p2pPeerConn.addIceCandidate(data.candidate); } catch(e) { console.error('addIceCandidate:', e); }
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════
+//   CLOUD UPLOAD
+// ══════════════════════════════════════════════════════
+function onFileSelected() {
+  const input = document.getElementById('file-input');
+  if (!input.files.length) return;
+  selectedFile = input.files[0];
+  document.getElementById('sf-name').textContent = selectedFile.name;
+  document.getElementById('sf-size').textContent = formatBytes(selectedFile.size);
+  document.getElementById('sf-icon').textContent = fileIcon(selectedFile.name);
+  document.getElementById('sel-file').classList.add('show');
+  document.getElementById('upload-btn').disabled = false;
+  resetProgress();
+}
+
+function clearFile() {
+  selectedFile = null; document.getElementById('file-input').value = '';
+  document.getElementById('sel-file').classList.remove('show');
+  document.getElementById('upload-btn').disabled = true; resetProgress();
+}
+
+async function startUpload() {
+  if (!selectedFile || isUploading) return;
+  isUploading = true;
+  const btn = document.getElementById('upload-btn');
+  setLoading(btn, true, 'Uploading...');
+  document.getElementById('progress-section').classList.add('show');
+  document.getElementById('log-console').classList.add('show');
+  document.getElementById('clear-log-btn').style.display = 'inline-flex';
+  clearLog(); setStep('init', 'active');
+  log(`Starting: ${selectedFile.name} (${formatBytes(selectedFile.size)})`);
+  try {
+    const initRes = await axios.post('/upload/init', { filename: selectedFile.name, totalSize: selectedFile.size }, auth());
+    const uploadId = initRes.data.uploadId;
+    log('Session: ' + uploadId, 'success'); setStep('init', 'done');
+    socket.emit('joinUploadRoom', uploadId);
+
+    let done = 0;
+    const total = Math.ceil(selectedFile.size / CHUNK_SIZE);
+    setStep('chunks', 'active');
+    log(`Uploading ${total} chunk(s)...`);
+
+    const chunks = Array.from({ length: total }, (_, i) => i);
+    await Promise.all([0,1,2].map(async () => {
+      let i;
+      while ((i = chunks.shift()) !== undefined) {
+        const start = i * CHUNK_SIZE;
+        const fd = new FormData();
+        fd.append('uploadId', uploadId); fd.append('chunkIndex', i.toString());
+        fd.append('chunk', selectedFile.slice(start, Math.min(start + CHUNK_SIZE, selectedFile.size)), `chunk_${i}`);
+        await axios.post('/upload/chunk', fd, auth());
+        done++;
+        const pct = Math.floor((done / total) * 90);
+        setProgress(pct, `Chunk ${done}/${total}`);
+        log(`Chunk ${i} sent`);
+      }
+    }));
+
+    log('Completing upload...');
+    await axios.post('/upload/complete', { uploadId, totalChunks: total }, auth());
+  } catch (err) {
+    const msg = err.response?.data?.error || err.message;
+    log('Error: ' + msg, 'error'); toast('Upload failed: ' + msg, 'error');
+    isUploading = false; setLoading(btn, false, 'Retry Upload');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//   MY FILES
+// ══════════════════════════════════════════════════════
+async function loadFiles() {
+  try {
+    const res = await axios.get('/upload/files', auth());
+    renderFiles(res.data.files);
+    updateStatsFromFiles(res.data.files);
+  } catch (e) { console.error('loadFiles:', e); }
+}
+
+function renderFiles(files) {
+  const grid = document.getElementById('files-grid');
+  const recent = document.getElementById('recent-list');
+
+  if (!files.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><p>No files yet</p></div>';
+    recent.innerHTML = '<div class="empty-state" style="padding:1rem"><div class="empty-icon">📭</div></div>';
+    return;
+  }
+
+  grid.innerHTML = files.map(f => `
+    <div class="file-card">
+      <div class="file-card-icon" style="background:${f.status==='COMPLETED'?'rgba(34,211,165,.1)':'rgba(251,191,36,.1)'}">
+        ${fileIcon(f.filename)}
+      </div>
+      <div class="file-card-info">
+        <div class="file-card-name" title="${f.filename}">${f.filename}</div>
+        <div class="file-card-meta">
+          <span>${formatBytes(f.total_size)}</span>
+          <span>${timeAgo(f.created_at)}</span>
+          <span class="badge ${f.permission_type==='OWNER'?'badge-ok':'badge-read'}">${f.permission_type}</span>
+          <span class="badge ${f.status==='COMPLETED'?'badge-ok':'badge-pending'}">${f.status}</span>
+        </div>
+      </div>
+      <div class="file-card-actions">
+        ${f.status === 'COMPLETED' ? `
+          <button class="btn btn-ghost btn-sm" onclick="downloadFile('${f.id}','${f.filename.replace(/'/g,"\\'")}')">⬇ Download</button>
+          ${f.permission_type === 'OWNER' ? `<button class="btn btn-ghost btn-sm" onclick="openShareModal('${f.id}','${f.filename.replace(/'/g,"\\'")}')">🔗 Share</button>` : ''}
+        ` : '<span style="font-size:.72rem;color:var(--muted)">Uploading...</span>'}
+      </div>
+    </div>
+  `).join('');
+
+  recent.innerHTML = files.slice(0, 4).map(f => `
+    <div style="display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:10px;background:rgba(255,255,255,.03);margin-bottom:.4rem">
+      <span style="font-size:1.1rem">${fileIcon(f.filename)}</span>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${f.filename}</div>
+        <div style="font-size:.68rem;color:var(--muted)">${formatBytes(f.total_size)}</div>
+      </div>
+      <span class="badge ${f.status==='COMPLETED'?'badge-ok':'badge-pending'}" style="font-size:.65rem">${f.status}</span>
+    </div>
+  `).join('');
+}
+
+function updateStatsFromFiles(files) {
+  const completed = files.filter(f => f.status === 'COMPLETED');
+  document.getElementById('stat-total').textContent = completed.length;
+  const total = completed.reduce((s, f) => s + parseInt(f.total_size || 0), 0);
+  document.getElementById('stat-size').textContent = formatBytes(total);
+}
+
+async function downloadFile(fileId, filename) {
+  toast(`⬇ Preparing download for ${filename}...`, 'info');
+  try {
+    // Get presigned URL (MinIO direct streaming, handles large files natively)
+    const res = await axios.get(`/upload/presign/${fileId}`, auth());
+    const a = document.createElement('a');
+    a.href = res.data.url;
+    a.download = filename;
+    a.target = '_blank';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    toast(`⬇ Download started: ${filename}`, 'success');
+  } catch (err) {
+    // Fallback: stream through server
+    try {
+      const response = await fetch(`/upload/download/${fileId}`, { headers: { Authorization: `Bearer ${jwtToken}` } });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(url);
+      toast(`⬇ Downloaded: ${filename}`, 'success');
+    } catch (e) { toast('Download failed: ' + e.message, 'error'); }
+  }
+}
+
+// ── Cloud Share Modal ──
+function openShareModal(fileId, filename) {
+  shareFileId = fileId;
+  document.getElementById('share-filename').textContent = filename;
+  document.getElementById('share-username').value = '';
+  const alert = document.getElementById('share-alert');
+  alert.className = 'alert'; alert.textContent = '';
+  document.getElementById('share-modal').classList.add('show');
+}
+
+function closeShareModal() {
+  document.getElementById('share-modal').classList.remove('show');
+  shareFileId = null;
+}
+
+async function submitShare() {
+  const toUsername = document.getElementById('share-username').value.trim();
+  if (!toUsername) { showAlert('share', 'Enter a username', 'danger'); return; }
+  const btn = document.getElementById('share-submit-btn');
+  setLoading(btn, true, 'Sharing...');
+  try {
+    await axios.post(`/upload/share/${shareFileId}`, { toUsername }, auth());
+    showAlert('share', `✓ Shared with ${toUsername}!`, 'success');
+    toast(`File shared with ${toUsername}!`, 'success');
+    setTimeout(closeShareModal, 1500);
+  } catch (err) {
+    showAlert('share', err.response?.data?.error || 'Share failed', 'danger');
+  } finally { setLoading(btn, false, 'Share'); }
+}
+
+// ══════════════════════════════════════════════════════
+//   P2P SEND
+// ══════════════════════════════════════════════════════
+function onP2PFileSelected() {
+  const input = document.getElementById('p2p-file-input');
+  if (!input.files.length) return;
+  p2pFile = input.files[0];
+  document.getElementById('p2p-sf-name').textContent = p2pFile.name;
+  document.getElementById('p2p-sf-size').textContent = formatBytes(p2pFile.size);
+  document.getElementById('p2p-sf-icon').textContent = fileIcon(p2pFile.name);
+  document.getElementById('p2p-sel-file').classList.add('show');
+  updateP2PSendBtn();
+}
+
+function clearP2PFile() {
+  p2pFile = null; document.getElementById('p2p-file-input').value = '';
+  document.getElementById('p2p-sel-file').classList.remove('show');
+  updateP2PSendBtn();
+}
+
+function updateP2PSendBtn() {
+  const username = document.getElementById('p2p-username').value.trim();
+  document.getElementById('p2p-send-btn').disabled = !(p2pFile && username);
+}
+
+function p2pSendRequest() {
+  if (!p2pFile || p2pState === 'requesting' || p2pState === 'transferring') return;
+  const toUsername = document.getElementById('p2p-username').value.trim();
+  if (!toUsername) { toast('Enter recipient username', 'error'); return; }
+  if (toUsername === currentUser.username) { toast('Cannot send to yourself', 'error'); return; }
+  p2pState = 'requesting';
+  socket.emit('p2p:request', { toUsername, filename: p2pFile.name, fileSize: p2pFile.size });
+  updateP2PSendStatus(`📤 Sending request to ${toUsername}...`);
+}
+
+async function initP2PSender(peerSocketId) {
+  p2pState = 'connecting';
+  updateP2PSendStatus('🔗 Establishing P2P connection...');
+
+  const pc = new RTCPeerConnection({ iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]});
+  p2pPeerConn = pc;
+
+  const channel = pc.createDataChannel('fileTransfer', { ordered: true });
+  p2pDataChan = channel;
+
+  channel.onopen = () => {
+    p2pState = 'transferring';
+    updateP2DSendStatus('🚀 Connected! Sending file...');
+    document.getElementById('p2p-send-progress').classList.add('show');
+    sendFileP2P(channel, p2pFile);
+  };
+
+  channel.onerror = e => { toast('P2P send error', 'error'); p2pState = 'idle'; updateP2PSendStatus('❌ Connection error'); };
+  channel.onclose = () => { if (p2pState !== 'done') { p2pState = 'idle'; } };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) socket.emit('p2p:ice-candidate', { toSocketId: peerSocketId, candidate: e.candidate.toJSON() });
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') updateP2PSendStatus('🚀 Sending file...');
+    if (pc.connectionState === 'failed') { toast('P2P connection failed', 'error'); p2pState = 'idle'; }
+  };
+
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  socket.emit('p2p:offer', { toSocketId: peerSocketId, offer });
+}
+
+async function sendFileP2P(channel, file) {
+  // 1. Send metadata
+  channel.send(JSON.stringify({ type: 'metadata', filename: file.name, size: file.size }));
+
+  let offset = 0;
+  while (offset < file.size) {
+    // Flow control: wait if buffer is saturated
+    if (channel.bufferedAmount > 1024 * 1024) {
+      channel.bufferedAmountLowThreshold = 512 * 1024;
+      await new Promise(r => { channel.onbufferedamountlow = r; });
+    }
+    if (channel.readyState !== 'open') break;
+
+    const end = Math.min(offset + P2P_CHUNK, file.size);
+    const buf = await file.slice(offset, end).arrayBuffer();
+    channel.send(buf);
+    offset = end;
+
+    const pct = Math.floor((offset / file.size) * 100);
+    document.getElementById('p2p-send-fill').style.width = pct + '%';
+    document.getElementById('p2p-send-pct').textContent = pct + '%';
+    document.getElementById('p2p-send-label').textContent = `Sending ${formatBytes(offset)} / ${formatBytes(file.size)}`;
+  }
+
+  // 2. Signal done
+  channel.send(JSON.stringify({ type: 'done' }));
+  p2pState = 'done';
+  document.getElementById('p2p-send-fill').style.width = '100%';
+  document.getElementById('p2p-send-pct').textContent = '100%';
+  updateP2PSendStatus(`✅ File sent successfully!`);
+  toast(`${file.name} sent!`, 'success');
+}
+
+function updateP2PSendStatus(msg) {
+  document.getElementById('p2p-send-status').innerHTML = `<div class="s-label">Status</div><div class="s-value">${msg}</div>`;
+}
+
+// Fix typo in function name:
+function updateP2DSendStatus(msg) { updateP2PSendStatus(msg); }
+
+// ══════════════════════════════════════════════════════
+//   P2P RECEIVE
+// ══════════════════════════════════════════════════════
+function p2pAccept() {
+  if (!pendingP2P) return;
+  document.getElementById('p2p-modal').classList.remove('show');
+  socket.emit('p2p:accept', { toSocketId: pendingP2P.fromSocketId });
+  p2pState = 'accepting';
+  updateP2PRecvStatus(`✅ Accepted! Waiting for connection from ${pendingP2P.fromUsername}...`);
+  showDashTab('p2p');
+}
+
+function p2pReject() {
+  if (!pendingP2P) return;
+  socket.emit('p2p:reject', { toSocketId: pendingP2P.fromSocketId });
+  document.getElementById('p2p-modal').classList.remove('show');
+  updateP2PRecvStatus('❌ Transfer rejected');
+  pendingP2P = null; p2pState = 'idle';
+}
+
+async function initP2PReceiver(fromSocketId, offer) {
+  p2pState = 'connecting';
+  updateP2PRecvStatus('🔗 Establishing P2P connection...');
+
+  const pc = new RTCPeerConnection({ iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]});
+  p2pPeerConn = pc;
+  p2pRecvBuffers = []; p2pRecvMeta = null; p2pRecvBytes = 0;
+
+  pc.ondatachannel = e => {
+    const ch = e.channel;
+    p2pState = 'transferring';
+    document.getElementById('p2p-recv-progress').classList.add('show');
+
+    ch.onmessage = event => {
+      if (typeof event.data === 'string') {
+        const msg = JSON.parse(event.data);
+        if (msg.type === 'metadata') {
+          p2pRecvMeta = msg;
+          updateP2PRecvStatus(`📥 Receiving: ${msg.filename} (${formatBytes(msg.size)})`);
+        } else if (msg.type === 'done') {
+          // Assemble and trigger browser download
+          const blob = new Blob(p2pRecvBuffers);
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = p2pRecvMeta?.filename || 'received-file';
+          document.body.appendChild(a); a.click();
+          document.body.removeChild(a); URL.revokeObjectURL(url);
+
+          p2pState = 'done';
+          document.getElementById('p2p-recv-fill').style.width = '100%';
+          document.getElementById('p2p-recv-pct').textContent = '100%';
+          updateP2PRecvStatus(`✅ File received: ${p2pRecvMeta?.filename}`);
+          toast(`File received: ${p2pRecvMeta?.filename}`, 'success');
+          pendingP2P = null;
         }
-    }
-
-    async function startUpload() {
-        const fileInput = document.getElementById('fileInput');
-        if (!fileInput.files.length) return alert('Select a file first.');
-        
-        const file = fileInput.files[0];
-        document.getElementById('progressContainer').style.display = 'block';
-        document.getElementById('progressBar').style.width = '0%';
-        document.getElementById('progressBar').innerText = '0%';
-        document.getElementById('logs').innerHTML = '';
-
-        try {
-            log(`Initializing upload for ${file.name}...`);
-            const initRes = await axios.post('/upload/init', 
-                { filename: file.name, totalSize: file.size },
-                { headers: { Authorization: `Bearer ${jwtToken}` } }
-            );
-            const uploadId = initRes.data.uploadId;
-            
-            // Join the specific room for real-time updates
-            socket.emit('joinUploadRoom', uploadId);
-
-            let chunksCompleted = 0;
-            const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
-
-            // Listen for progress from server
-            socket.on('progress', (data) => {
-                log(`Server Event: ${data.event} ` + (data.chunkIndex !== undefined ? `(Chunk ${data.chunkIndex})` : ''));
-                if (data.event === 'CHUNK_WRITTEN') {
-                    chunksCompleted++;
-                    const percent = Math.floor((chunksCompleted / totalChunks) * 100);
-                    document.getElementById('progressBar').style.width = `${percent}%`;
-                    document.getElementById('progressBar').innerText = `${percent}%`;
-                } else if (data.event === 'UPLOAD_COMPLETE') {
-                    log(`File successfully moved to MinIO: ${data.minioPath}`);
-                    document.getElementById('progressBar').style.backgroundColor = '#2196F3';
-                    document.getElementById('progressBar').innerText = 'Complete!';
-                }
-            });
-
-            log('Starting chunk uploads...');
-            const uploadPromises = [];
-            for (let i = 0; i < totalChunks; i++) {
-                const start = i * CHUNK_SIZE;
-                const end = Math.min(start + CHUNK_SIZE, file.size);
-                const chunk = file.slice(start, end);
-
-                const formData = new FormData();
-                formData.append('uploadId', uploadId);
-                formData.append('chunkIndex', i.toString());
-                formData.append('chunk', chunk, `chunk_${i}`);
-
-                const p = axios.post('/upload/chunk', formData, {
-                    headers: { Authorization: `Bearer ${jwtToken}` }
-                }).catch(err => {
-                    log(`Error uploading chunk ${i}: ${err.message}`);
-                    throw err; // Stop complete if a chunk fails
-                });
-                uploadPromises.push(p);
-            }
-
-            await Promise.all(uploadPromises);
-            
-            log('Signaling completion to server...');
-            await axios.post('/upload/complete', 
-                { uploadId, totalChunks },
-                { headers: { Authorization: `Bearer ${jwtToken}` } }
-            );
-
-        } catch (e) {
-            log(`Error: ${e.response?.data?.error || e.message}`);
+      } else {
+        // Binary chunk
+        p2pRecvBuffers.push(event.data);
+        p2pRecvBytes += event.data.byteLength;
+        if (p2pRecvMeta) {
+          const pct = Math.floor((p2pRecvBytes / p2pRecvMeta.size) * 100);
+          document.getElementById('p2p-recv-fill').style.width = pct + '%';
+          document.getElementById('p2p-recv-pct').textContent = pct + '%';
+          document.getElementById('p2p-recv-label').textContent = `Received ${formatBytes(p2pRecvBytes)} / ${formatBytes(p2pRecvMeta.size)}`;
         }
-    }
+      }
+    };
+
+    ch.onerror = () => { toast('P2P receive error', 'error'); p2pState = 'idle'; };
+  };
+
+  pc.onicecandidate = e => {
+    if (e.candidate) socket.emit('p2p:ice-candidate', { toSocketId: fromSocketId, candidate: e.candidate.toJSON() });
+  };
+
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') updateP2PRecvStatus('✅ Connected! Receiving file...');
+    if (pc.connectionState === 'failed') { toast('P2P connection failed', 'error'); p2pState = 'idle'; }
+  };
+
+  await pc.setRemoteDescription(offer);
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  socket.emit('p2p:answer', { toSocketId: fromSocketId, answer });
+}
+
+function updateP2PRecvStatus(msg) {
+  document.getElementById('p2p-recv-status').innerHTML = `<div class="s-label">Status</div><div class="s-value">${msg}</div>`;
+}
+
+// ══════════════════════════════════════════════════════
+//   UPLOAD PROGRESS UI
+// ══════════════════════════════════════════════════════
+function setProgress(pct, label, complete = false) {
+  const fill = document.getElementById('progress-fill');
+  fill.style.width = pct + '%'; fill.className = 'progress-fill' + (complete ? ' complete' : '');
+  document.getElementById('progress-pct').textContent = pct + '%';
+  document.getElementById('progress-label').textContent = label || 'Uploading...';
+}
+
+function setStep(name, state) {
+  const el = document.getElementById('step-' + name); if (!el) return;
+  el.className = 'step ' + state;
+  const icons = { init:'Init',chunks:'Chunks',stitch:'Stitching',minio:'Storing',done:'Complete' };
+  const pre = state==='done'?'✓':state==='active'?'◉':'⬡';
+  el.textContent = `${pre} ${icons[name]}`;
+}
+
+function resetProgress() {
+  setProgress(0, 'Uploading...');
+  ['init','chunks','stitch','minio','done'].forEach(s => setStep(s, ''));
+  document.getElementById('progress-section').classList.remove('show');
+}
+
+function log(msg, type = '') {
+  const el = document.getElementById('log-console');
+  const d = document.createElement('div'); d.className = 'log-line ' + type;
+  const ts = new Date().toLocaleTimeString();
+  d.innerHTML = `<span class="ts">[${ts}]</span><span class="msg">${msg}</span>`;
+  el.appendChild(d); el.scrollTop = el.scrollHeight;
+}
+
+function clearLog() { document.getElementById('log-console').innerHTML = ''; }
+
+function updateStats() {
+  const done = uploadHistory.filter(h => h.status === 'completed').length;
+  document.getElementById('stat-total').textContent = done;
+  document.getElementById('stat-size').textContent = formatBytes(totalBytesUploaded);
+}
+
+function renderRecent() {
+  const el = document.getElementById('recent-list');
+  if (!uploadHistory.length) { el.innerHTML = '<div class="empty-state" style="padding:1rem"><div class="empty-icon">📭</div></div>'; return; }
+  el.innerHTML = uploadHistory.slice(0, 4).map(h => `
+    <div style="display:flex;align-items:center;gap:.6rem;padding:.6rem;border-radius:10px;background:rgba(255,255,255,.03);margin-bottom:.4rem">
+      <span style="font-size:1.1rem">${fileIcon(h.filename)}</span>
+      <div style="flex:1;min-width:0"><div style="font-size:.8rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${h.filename}</div>
+      <div style="font-size:.68rem;color:var(--muted)">${formatBytes(h.size)}</div></div>
+      <span class="badge badge-ok" style="font-size:.65rem">${h.status}</span>
+    </div>`).join('');
+}
+
+// ══════════════════════════════════════════════════════
+//   UTILITIES
+// ══════════════════════════════════════════════════════
+const auth = () => ({ headers: { Authorization: `Bearer ${jwtToken}` } });
+
+function formatBytes(b) {
+  b = parseInt(b || 0);
+  if (!b) return '0 B';
+  const k = 1024, s = ['B','KB','MB','GB','TB'];
+  const i = Math.floor(Math.log(b) / Math.log(k));
+  return parseFloat((b / Math.pow(k, i)).toFixed(2)) + ' ' + s[i];
+}
+
+function fileIcon(name) {
+  const e = (name || '').split('.').pop().toLowerCase();
+  return ({pdf:'📄',doc:'📝',docx:'📝',xls:'📊',xlsx:'📊',ppt:'📋',pptx:'📋',jpg:'🖼️',jpeg:'🖼️',png:'🖼️',gif:'🖼️',webp:'🖼️',svg:'🎨',mp4:'🎬',mov:'🎬',avi:'🎬',mkv:'🎬',webm:'🎬',mp3:'🎵',wav:'🎵',flac:'🎵',zip:'🗜️',rar:'🗜️','7z':'🗜️',tar:'🗜️',gz:'🗜️',js:'⚙️',ts:'⚙️',py:'🐍',java:'☕',json:'📋',html:'🌐',css:'🎨',md:'📖',exe:'⚡',dmg:'💿'}[e]) || '📁';
+}
+
+function timeAgo(date) {
+  const d = (new Date() - new Date(date)) / 1000;
+  if (d < 60) return 'just now'; if (d < 3600) return Math.floor(d/60) + 'm ago';
+  if (d < 86400) return Math.floor(d/3600) + 'h ago'; return Math.floor(d/86400) + 'd ago';
+}
+
+function setLoading(btn, loading, label) {
+  btn.disabled = loading;
+  btn.innerHTML = loading ? `<span class="spinner"></span> ${label}` : label;
+}
+
+function showAlert(form, msg, type) {
+  const el = document.getElementById(form + '-alert');
+  el.className = `alert alert-${type} show`; el.textContent = msg;
+}
+
+function toast(msg, type = 'info') {
+  const c = document.getElementById('toast-container');
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  const icons = { success:'✅', error:'❌', info:'ℹ️', warn:'⚠️' };
+  el.innerHTML = `<span>${icons[type]||''}</span><span>${msg}</span>`;
+  c.appendChild(el);
+  setTimeout(() => { el.style.animation = 'slideOut .3s ease forwards'; setTimeout(() => el.remove(), 300); }, 4000);
+}
 </script>
 </body>
 </html>

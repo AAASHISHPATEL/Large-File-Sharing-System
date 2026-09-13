@@ -32,6 +32,7 @@ import { connectRedis } from './services/redisClient';
 import { initializeDB } from './config/db';
 import { initializeMinio } from './services/minioClient';
 import { initializeWebSocket } from './services/websocket';
+import { connectRabbitMQ } from './services/rabbitmq';
 
 app.use('/auth', authRoutes);
 app.use('/upload', uploadRoutes);
@@ -45,6 +46,7 @@ const startServer = async () => {
         await connectRedis();
         await initializeDB();
         await initializeMinio();
+        await connectRabbitMQ();
         await initializeWebSocket(httpServer);
 
         httpServer.listen(PORT, () => {
