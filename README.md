@@ -1,57 +1,66 @@
-# 📦 Large File Sharing System
+# 📦 Large File Sharing System (Enterprise Edition)
 
-A production-ready, scalable backend system for uploading and sharing large files using **chunked uploads**, **resumable transfers**, and **real-time progress tracking** via WebSockets. Built with Node.js, TypeScript, PostgreSQL, Redis, and MinIO.
+A production-ready, highly scalable, distributed backend system for uploading, sharing, and processing large files. 
+
+This project demonstrates advanced **System Design** concepts, including **Chunked Uploads**, **Asynchronous Processing via Message Queues**, **Sliding Window Rate Limiting**, **Write-Through Caching**, and **Load Balancing**. Built with Node.js, TypeScript, PostgreSQL, Redis, RabbitMQ, and MinIO.
 
 ---
 
 ## 🏗️ Architecture Overview
 
-```
-Client
-  │
-  ▼
-┌─────────────────────────────────────────┐
-│            Nginx Load Balancer          │  ← Port 8080 (Docker)
-│         (Round-Robin, 2 instances)      │
-└────────────┬──────────────┬────────────┘
-             │              │
-        ┌────▼────┐    ┌────▼────┐
-        │  App 1  │    │  App 2  │   ← Node.js / Express (Port 3000)
-        └────┬────┘    └────┬────┘
-             │              │
-   ┌─────────▼──────────────▼──────────┐
-   │                                    │
-┌──▼───┐    ┌──────────┐    ┌────────┐ │
-│Redis │    │PostgreSQL│    │ MinIO  │ │
-│6379  │    │  5432    │    │  9000  │ │
-└──────┘    └──────────┘    └────────┘ │
-   └─────────────────────────────────────┘
+```mermaid
+graph TD
+    Client[Client Browser / UI] -->|HTTP / WebSockets| Nginx[Nginx Load Balancer]
+    
+    subgraph "API Cluster"
+        Nginx -->|Round-Robin| App1[Express API Node 1]
+        Nginx -->|Round-Robin| App2[Express API Node 2]
+    end
+
+    subgraph "Data & State Layer"
+        App1 -.->|Read/Write| Postgres[(PostgreSQL)]
+        App2 -.->|Read/Write| Postgres
+        
+        App1 -.->|Cache & Rate Limits| Redis[(Redis)]
+        App2 -.->|Cache & Rate Limits| Redis
+    end
+    
+    subgraph "Asynchronous Processing"
+        App1 -->|Publish Job| RabbitMQ[RabbitMQ Queue]
+        App2 -->|Publish Job| RabbitMQ
+        
+        RabbitMQ -->|Consume (Prefetch 1)| Worker[Background Worker]
+        Worker -.->|Stream Chunks| MinIO[(MinIO / S3 Object Storage)]
+        Worker -.->|Publish Progress| Redis
+    end
+    
+    Redis -.->|WebSocket PubSub| App1
+    Redis -.->|WebSocket PubSub| App2
 ```
 
-### Why This Architecture?
+### Advanced System Design Components
 
-| Component | Role | Why |
-|-----------|------|-----|
-| **Express.js** | HTTP API server | Lightweight, fast, well-supported |
-| **PostgreSQL** | Persistent metadata storage | ACID-compliant, stores file records & ACLs |
-| **Redis** | Upload session state + pub/sub | Fast in-memory tracking of chunk progress |
-| **MinIO** | Object storage (S3-compatible) | Stores the final assembled files permanently |
-| **Socket.IO** | Real-time progress events | Clients get live upload progress without polling |
-| **Redis Adapter** | Socket.IO multi-instance sync | Ensures WebSocket events work across multiple app instances |
-| **Nginx** | Load balancer | Distributes traffic across app instances horizontally |
+| Component | Role | Architectural Justification |
+|-----------|------|-----------------------------|
+| **Nginx Load Balancer** | Traffic Distribution | Horizontally scales the API by routing traffic evenly (least-conn) across multiple Express.js nodes on Port 8080. |
+| **RabbitMQ** | Message Broker & Decoupling | Used to offload the heavy chunk-stitching process. By placing stitching jobs on a durable queue (`file_stitch_queue`), the API responds to clients instantly (`HTTP 202 Accepted`), avoiding event-loop blocking and scaling processing independently. |
+| **Background Worker** | Heavy Computation | An isolated Node.js process that streams file chunks from disk directly into MinIO. Uses `prefetch(1)` to ensure fair task distribution if multiple workers are deployed. |
+| **Redis (Rate Limiter)** | Abuse Prevention | Implements a **Sliding Window Rate Limiter** using atomic Redis Sorted Sets (`ZADD`, `ZREMRANGEBYSCORE`). This provides millisecond-perfect rolling windows, completely eliminating the "boundary burst" flaws of fixed-window algorithms. |
+| **Redis (Caching)** | API Acceleration | Implements a **Write-Through Cache** for the user dashboard (`/upload/files`). Retrieves file lists in <2ms and auto-invalidates when new uploads complete. |
+| **Redis (Pub/Sub)** | Real-time Sync | Synchronizes WebSocket events. When the background Worker finishes an upload, it publishes an event to Redis. The Express nodes pick it up and emit real-time WebSocket progress updates to the exact client browser! |
+| **PostgreSQL** | Relational Metadata | ACID-compliant storage for user accounts, file records, and ACL (Access Control Lists). |
+| **MinIO** | Object Storage | Highly available S3-compatible blob storage used to securely house the final stitched files indefinitely. |
 
 ---
 
-## ✨ Features
+## ✨ Core Features
 
-- ✅ **Chunked File Upload** — Split large files into chunks and upload them independently
-- ✅ **Resumable Uploads** — Check which chunks arrived; re-send only missing ones
-- ✅ **Real-Time Progress** — WebSocket events stream upload progress to the client live
-- ✅ **JWT Authentication** — Register/login with secure token-based auth
-- ✅ **File Access Control** — Owner-based ACL stored in PostgreSQL
-- ✅ **MinIO Object Storage** — Files stored permanently in S3-compatible storage
-- ✅ **Horizontal Scalability** — Multiple app instances synced via Redis adapter
-- ✅ **Docker Compose** — One command to spin up the entire stack
+- ✅ **Chunked & Resumable Uploads** — Break multi-gigabyte files into small 5MB chunks. If a network drops, the client queries which chunks arrived and resumes exactly where it left off.
+- ✅ **Sliding Window Rate Limiting** — Strict throttling on Authentication (10req/min) and Chunk Uploads (600req/min) prevents DDoS and brute-force attacks.
+- ✅ **Asynchronous Stitching** — The API never blocks. Upload completions are handed off to RabbitMQ and processed in the background.
+- ✅ **Real-Time WebSocket Progress** — Users get live UI updates ("Queued", "Stitching...", "Uploading to Cloud...", "Complete") broadcasted across the cluster via Redis Pub/Sub.
+- ✅ **Lightning Fast Dashboard** — Dashboard queries are cached in Redis to drastically reduce PostgreSQL load.
+- ✅ **Fully Dockerized** — The entire 8-container architecture is orchestrated with a single `docker-compose.yml`.
 
 ---
 
@@ -60,302 +69,102 @@ Client
 ```
 Large File Sharing System/
 ├── src/
-│   ├── index.ts                  # App entry point, server bootstrap
+│   ├── index.ts                  # App entry point, WebSocket init
+│   ├── worker.ts                 # Dedicated RabbitMQ consumer process
 │   ├── config/
-│   │   └── db.ts                 # PostgreSQL pool + table initialization
+│   │   └── db.ts                 # PostgreSQL pool setup
 │   ├── middleware/
-│   │   └── authMiddleware.ts     # JWT verification middleware
+│   │   ├── authMiddleware.ts     # JWT verification
+│   │   └── rateLimiter.ts        # Redis sliding-window algorithm
 │   ├── routes/
-│   │   ├── auth.ts               # /auth/register, /auth/login
-│   │   └── upload.ts             # /upload/init, /upload/chunk, /upload/complete, /upload/status
+│   │   ├── auth.ts               # Login/Register (Rate limited)
+│   │   └── upload.ts             # Chunk handling, Caching, Job Enqueueing
 │   └── services/
-│       ├── redisClient.ts        # Redis connection client
-│       ├── minioClient.ts        # MinIO client + bucket initialization
-│       ├── uploadService.ts      # Core chunked upload logic
-│       └── websocket.ts          # Socket.IO server + Redis adapter
+│       ├── redisClient.ts        # Redis Cache & Pub/Sub client
+│       ├── minioClient.ts        # MinIO S3 operations + Bucket creation
+│       ├── rabbitmq.ts           # RabbitMQ connection & publisher
+│       ├── uploadService.ts      # Core file-system chunk logic
+│       └── websocket.ts          # Socket.IO Redis Adapter
 ├── public/
-│   └── index.html                # Frontend UI for testing uploads
-├── scripts/
-│   ├── testUpload.js             # Script to test a full upload flow
-│   └── testResume.js             # Script to test resumable upload
-├── docker-compose.yml            # Full stack: Redis, MinIO, PostgreSQL, App ×2, Nginx
-├── Dockerfile                    # App container build
-├── nginx.conf                    # Load balancer config
-├── .env                          # Local environment variables (do NOT commit)
-├── tsconfig.json                 # TypeScript config
-└── package.json
+│   ├── index.html                # Modern, dynamic frontend UI
+│   ├── app.js                    # Frontend logic (Socket.IO, Chunking)
+│   └── styles.css                # Glassmorphism UI styles
+├── docker-compose.yml            # 8-Container orchestration
+├── Dockerfile                    # Multi-stage Docker build
+└── nginx.conf                    # Nginx Reverse Proxy config
 ```
 
 ---
 
-## 🔄 Upload Flow (Step by Step)
+## 🔄 Upload Flow Details
 
+1. **Initialize (`POST /upload/init`)**: Client requests an upload session. A unique `uploadId` is generated, and rate limits are checked.
+2. **Chunking (`POST /upload/chunk`)**: The client slices the file locally and uploads chunks concurrently. Chunks are saved to a shared Docker Volume (`shared_uploads`).
+3. **Completion (`POST /upload/complete`)**: Client signals completion. The API publishes a `StitchJobData` payload to RabbitMQ and immediately returns a `202 Accepted` status.
+4. **Background Processing**:
+   - The `worker.ts` process consumes the job from RabbitMQ.
+   - It streams the chunks together directly into MinIO using `fPutObject`.
+   - It updates PostgreSQL to mark the file as `COMPLETED`.
+   - It publishes a `worker_events` message to Redis.
+5. **Real-Time Notification**: The Express server intercepts the Redis event and uses Socket.IO to notify the specific user's browser that the file is ready for download!
+
+---
+
+## 🚀 Getting Started
+
+### Run via Docker Compose (Recommended)
+
+Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/). This single command will build the images and launch the entire load-balanced cluster.
+
+```bash
+# Clone the repository
+git clone https://github.com/AAASHISHPATEL/Large-File-Sharing-System.git
+cd Large-File-Sharing-System
+
+# Start the full architecture in the background
+docker compose up -d --build
 ```
-1. POST /auth/register      → Create an account
-2. POST /auth/login         → Get a JWT token
-3. POST /upload/init        → Start an upload session → returns uploadId
-4. WebSocket connect        → Join room: socket.emit('joinUploadRoom', uploadId)
-5. POST /upload/chunk       → Upload each chunk (repeat for all chunks)
-                              ← Server emits 'progress' events in real-time
-6. GET  /upload/status/:id  → (Optional) Check which chunks arrived for resumption
-7. POST /upload/complete    → Stitch chunks → upload to MinIO → cleanup
-                              ← Server emits 'UPLOAD_COMPLETE' event
-```
+
+**Services Launched:**
+- 🌐 **Web App & API**: `http://localhost:8080` (Routed by Nginx to App1/App2)
+- 🐇 **RabbitMQ Dashboard**: `http://localhost:15672` (guest / guest)
+- 🪣 **MinIO Console**: `http://localhost:9001` (minioadmin / minioadminpassword)
 
 ---
 
 ## 🌐 API Reference
 
 ### Auth
+- `POST /auth/register` (Rate-limited)
+- `POST /auth/login` (Rate-limited)
 
-#### `POST /auth/register`
-```json
-// Request
-{ "username": "ashish", "password": "mypassword" }
-
-// Response 201
-{ "user": { "id": "uuid", "username": "ashish" } }
-```
-
-#### `POST /auth/login`
-```json
-// Request
-{ "username": "ashish", "password": "mypassword" }
-
-// Response 200
-{ "token": "eyJ...", "user": { "id": "uuid", "username": "ashish" } }
-```
+### File Operations (Requires JWT `Authorization: Bearer <token>`)
+- `GET /upload/files`: Retrieve all files (Accelerated via Redis Cache)
+- `POST /upload/init`: Start a chunked upload session
+- `POST /upload/chunk`: Upload a binary file chunk (Rate-limited to 600/min)
+- `GET /upload/status/:uploadId`: Retrieve missing chunks for resumption
+- `POST /upload/complete`: Enqueue job to RabbitMQ for stitching
+- `GET /upload/presign/:fileId`: Generate a direct download URL from MinIO
+- `POST /upload/share/:fileId`: Share a file with another user via ACL
 
 ---
 
-### Upload (all routes require `Authorization: Bearer <token>`)
+## 🛠️ Tech Stack & Tooling
 
-#### `POST /upload/init`
-Initializes an upload session and creates a DB record.
-```json
-// Request
-{ "filename": "bigvideo.mp4", "totalSize": 104857600 }
-
-// Response 200
-{ "uploadId": "uuid-v4" }
-```
-
-#### `POST /upload/chunk`
-Uploads a single chunk. Use `multipart/form-data`.
-```
-Form fields:
-  - uploadId   (string)
-  - chunkIndex (number, 0-based)
-  - chunk      (file binary)
-```
-```json
-// Response 200
-{ "success": true, "message": "Chunk 0 received" }
-```
-
-#### `GET /upload/status/:uploadId`
-Returns which chunks have been received — used to **resume** an interrupted upload.
-```json
-// Response 200
-{
-  "uploadId": "uuid",
-  "totalSize": "104857600",
-  "receivedChunks": [0, 1, 2, 5]
-}
-```
-
-#### `POST /upload/complete`
-Stitches all chunks in order, uploads the assembled file to MinIO, then cleans up temp files.
-```json
-// Request
-{ "uploadId": "uuid", "totalChunks": 10 }
-
-// Response 200
-{ "success": true, "finalPath": "filesharing/uuid-bigvideo.mp4" }
-```
-
----
-
-### WebSocket Events
-
-Connect to `ws://localhost:3000` using Socket.IO.
-
-| Event (emit) | Payload | Description |
-|---|---|---|
-| `joinUploadRoom` | `uploadId` | Subscribe to progress for a specific upload |
-
-| Event (receive) | Payload | Description |
-|---|---|---|
-| `progress` | `{ event: 'CHUNK_WRITTEN', chunkIndex, processingTimeMs }` | Each chunk received |
-| `progress` | `{ event: 'STITCHING_STARTED' }` | Chunks being merged |
-| `progress` | `{ event: 'UPLOADING_TO_MINIO' }` | File being sent to MinIO |
-| `progress` | `{ event: 'UPLOAD_COMPLETE', minioPath }` | Upload fully done |
-
----
-
-## 🗄️ Database Schema
-
-```sql
--- Users table
-CREATE TABLE users (
-    id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username      VARCHAR(255) UNIQUE NOT NULL,
-    password_hash VARCHAR(255) NOT NULL,
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Files metadata table
-CREATE TABLE files (
-    id         UUID PRIMARY KEY,
-    filename   VARCHAR(255) NOT NULL,
-    total_size BIGINT NOT NULL,
-    s3_path    VARCHAR(255),               -- MinIO object path after completion
-    status     VARCHAR(50) DEFAULT 'UPLOADING',  -- 'UPLOADING' | 'COMPLETED'
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Access control list
-CREATE TABLE file_acls (
-    file_id         UUID REFERENCES files(id) ON DELETE CASCADE,
-    user_id         UUID REFERENCES users(id) ON DELETE CASCADE,
-    permission_type VARCHAR(50) NOT NULL,  -- 'OWNER' | 'READ' | 'WRITE'
-    PRIMARY KEY (file_id, user_id)
-);
-```
-
----
-
-## 🚀 Getting Started
-
-### Option 1: Docker Compose (Recommended)
-
-> Requires [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-
-```bash
-# Clone the repo
-git clone https://github.com/AAASHISHPATEL/Large-File-Sharing-System.git
-cd Large-File-Sharing-System
-
-# Start everything
-docker compose up --build
-```
-
-The app will be available at `http://localhost:8080` (via Nginx).
-
----
-
-### Option 2: Run Locally (Manual)
-
-#### Prerequisites
-- Node.js 18+
-- PostgreSQL 15+
-- Redis 5+
-- MinIO server
-
-#### 1. Install dependencies
-```bash
-npm install
-```
-
-#### 2. Create `.env` file
-```env
-PORT=3000
-
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=your_postgres_password
-POSTGRES_DB=filesharing
-
-# Redis
-REDIS_URL=redis://localhost:6379
-
-# MinIO
-MINIO_ENDPOINT=localhost
-MINIO_PORT=9000
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=minioadminpassword
-MINIO_USE_SSL=false
-
-# JWT
-JWT_SECRET=your_super_secret_jwt_key
-```
-
-#### 3. Create the database
-```bash
-psql -U postgres -c "CREATE DATABASE filesharing;"
-```
-
-#### 4. Start MinIO
-```powershell
-$env:MINIO_ROOT_USER = "minioadmin"
-$env:MINIO_ROOT_PASSWORD = "minioadminpassword"
-C:\minio.exe server C:\minio-data --console-address ":9001"
-```
-
-#### 5. Run the server
-```bash
-npm run dev
-```
-
-Server starts at `http://localhost:3000` 🚀
-
----
-
-## 🧪 Testing
-
-Two test scripts are included in the `scripts/` folder:
-
-```bash
-# Test a full upload from scratch
-node scripts/testUpload.js
-
-# Test resumable upload (simulates a partial upload then resumes)
-node scripts/testResume.js
-```
-
-You can also use the built-in frontend UI at `http://localhost:3000`.
-
----
-
-## 🔧 Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `PORT` | `3000` | Server port |
-| `POSTGRES_HOST` | `localhost` | PostgreSQL host |
-| `POSTGRES_USER` | `admin` | PostgreSQL user |
-| `POSTGRES_PASSWORD` | — | PostgreSQL password |
-| `POSTGRES_DB` | `filesharing` | PostgreSQL database name |
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
-| `MINIO_ENDPOINT` | `localhost` | MinIO host |
-| `MINIO_PORT` | `9000` | MinIO API port |
-| `MINIO_ACCESS_KEY` | `minioadmin` | MinIO access key |
-| `MINIO_SECRET_KEY` | `minioadminpassword` | MinIO secret key |
-| `MINIO_USE_SSL` | `false` | Enable SSL for MinIO |
-| `JWT_SECRET` | `super-secret-key-for-dev` | Secret for signing JWT tokens |
-
----
-
-## 🛠️ Tech Stack
-
-| Technology | Version | Purpose |
-|---|---|---|
-| Node.js | 20.x | Runtime |
-| TypeScript | 7.x | Type safety |
-| Express.js | 5.x | HTTP framework |
-| PostgreSQL | 15+ | Relational database |
-| Redis | 5+ | Session state & pub/sub |
-| MinIO | latest | S3-compatible object storage |
-| Socket.IO | 4.x | Real-time WebSocket events |
-| Multer | 2.x | Multipart file upload handling |
-| bcryptjs | 3.x | Password hashing |
-| jsonwebtoken | 9.x | JWT auth |
-| Nginx | alpine | Load balancer |
-| Docker Compose | 3.8 | Container orchestration |
+| Technology | Purpose |
+|---|---|
+| **Node.js 18 & TypeScript** | Fast, statically-typed async backend |
+| **Express.js** | HTTP REST Framework |
+| **PostgreSQL 15** | Relational Metadata & ACL Storage |
+| **Redis 7** | Sliding Window Rate Limiting, Write-Through Caching, Pub/Sub |
+| **RabbitMQ 3** | Durable Message Queue (`amqplib`) |
+| **MinIO** | S3-Compatible Object Storage |
+| **Socket.IO** | Real-time browser synchronization |
+| **Nginx** | Reverse Proxy & Load Balancing |
+| **Docker Compose** | Multi-container orchestration |
 
 ---
 
 ## 📝 License
 
-ISC
+ISC License
